@@ -3,8 +3,6 @@
 Utilities.
 '''
 import re
-import glob
-import os
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -17,6 +15,15 @@ from vtk.util.numpy_support import vtk_to_numpy
 matplotlib.use('agg')
 
 c = 299792458  # speed of light in vacuum.
+
+
+def srange(start, step, length, dtype=None):
+    """
+    Like np.arange() but you give the start, the step, and the number
+    of steps. Saves having to compute the end point yourself.
+    """
+    stop = start + (step * length)
+    return np.arange(start, stop, step, dtype)
 
 
 def _get_array(output, idx):
@@ -172,28 +179,6 @@ def plot_section(section, size=(10, 10), color='viridis'):
     ax = fig.add_axes([0.1, 0.1, 0.7, 0.8])
     im = ax.imshow(section, cmap=color)
     fig.colorbar(im, shrink=0.35)  # ticks=[-1, 0, 1])
-
-
-def get_bscan_section(filename):
-    """
-    Returns a tuple where the first element is the 2D numpy array
-    corresponding to the Bscan profile, and the second element is the time
-    basis for the vertical axis.
-    """
-    f = h5py.File(filename, 'r')
-    nrx = f.attrs['nrx']
-    dt = f.attrs['dt']
-    iterations = f.attrs['Iterations']
-
-    # Get scanned data from file
-    for rx in range(1, nrx + 1):
-        path = '/rxs/rx' + str(rx) + '/' + 'Ez'
-        outputdata = f[path][:]
-
-    # Make a time-axis
-    t = np.linspace(0, 1, iterations)
-    t *= (iterations * dt)
-    return outputdata, t
 
 
 def plot_earth_model(geom_name, save_fig=True):
