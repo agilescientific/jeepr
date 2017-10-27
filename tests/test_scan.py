@@ -1,8 +1,8 @@
 # -*- coding: utf 8 -*-
 """
-Define a suite a tests for jeep.
+Define a suite a tests for jeepr.
 """
-from jeep import Scan
+from jeepr import Scan
 
 FNAME = 'tests/Multi-01_LINE00A.RA1'
 

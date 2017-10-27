@@ -1,16 +1,16 @@
-.. jeep documentation master file, created by
+.. jeepr documentation master file, created by
    sphinx-quickstart on Fri Oct 27 14:05:23 2017.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to jeep's documentation!
-================================
+Welcome to jeepr's documentation!
+=================================
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
-.. automodule:: jeep
+.. automodule:: jeepr
 
 .. autoclass:: Scan
     :members:

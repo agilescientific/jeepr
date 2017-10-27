@@ -1,7 +1,7 @@
 # -*- coding: utf 8 -*-
 """
 ==================
-jeep
+jeepr
 ==================
 """
 from .scan import Scan

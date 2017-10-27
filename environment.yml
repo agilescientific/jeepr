@@ -1,4 +1,4 @@
-name: jeep
+name: jeepr
 channels:
 - clinicalgraphics
 - conda-forge

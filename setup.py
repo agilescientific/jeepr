@@ -1,12 +1,12 @@
 # -*- coding: utf 8 -*-
 """
-Python installation file for jeep project.
+Python installation file for jeepr project.
 """
 from setuptools import setup
 import re
 
 verstr = 'unknown'
-VERSIONFILE = "jeep/_version.py"
+VERSIONFILE = "jeepr/_version.py"
 with open(VERSIONFILE, "r")as f:
     verstrline = f.read().strip()
     pattern = re.compile(r"__version__ = ['\"](.*)['\"]")
@@ -44,14 +44,14 @@ CLASSIFIERS = ['Development Status :: 3 - Alpha',
                'Programming Language :: Python :: 3.6',
                ]
 
-setup(name='jeep',
+setup(name='jeepr',
       version=verstr,
       description='Tools for managing GPR data.',
-      url='http://github.com/agile-geoscience/jeep',
+      url='http://github.com/agile-geoscience/jeepr',
       author='Agile Scientific',
       author_email='hello@agilescientific.com',
       license='Apache 2',
-      packages=['jeep'],
+      packages=['jeepr'],
       tests_require=TEST_REQUIREMENTS,
       test_suite='run_tests',
       install_requires=REQUIREMENTS,
