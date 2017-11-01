@@ -129,30 +129,6 @@ class Scan(np.ndarray):
     def extent(self):
         return [self.x[0], self.x[-1], self.time[-1]*1e9, self.time[0]*1e9]
 
-    def add_model_from_vti(self, fname):
-        """
-        Add a model from a VTI file.
-
-        Args:
-            fname (str): a RAD file.
-
-        Returns:
-            None.
-        """
-        pass
-
-    def add_model_from_png(self, fname):
-        """
-        Add a model from an image.
-
-        Args:
-            fname (str): a PNG file.
-
-        Returns:
-            None.
-        """
-        pass
-
     def add_model(self, arr, params):
         """
         Add a model from an array.

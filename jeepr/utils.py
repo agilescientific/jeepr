@@ -2,8 +2,6 @@
 '''
 Utilities.
 '''
-
-import matplotlib.pyplot as plt
 import numpy as np
 
 
@@ -41,7 +39,7 @@ def get_trace_spacing(fname):
     return float(info.split()[0])
 
 
-def get_materials(fname):
+def get_gprMax_materials(fname):
     """
     Returns the soil permittivities. Fname is an .in file.
     """
@@ -72,73 +70,3 @@ def vel_from_perm(model, nano=False):
         return 1e-9 * c / np.sqrt(model)
     else:
         return c / np.sqrt(model)
-
-
-def intvel_to_avgvel(data):
-    """
-    Takes and 2d array of interval velocities and computes a vavg velocity
-    model (average down to each cell) for depthing conversion.
-    """
-    ny, nx = data.shape
-    vacc = np.add.accumulate(data, axis=0)
-    x = np.ones(nx)
-    y = np.linspace(1, ny+1, ny)
-    xv, yv = np.meshgrid(x, y)
-    return vacc/yv
-
-
-def plot_section(section, size=(10, 10), color='viridis'):
-    """
-    Helper function to plot a 2D array size: is figsize in inches
-    returns a new figure.
-    """
-    fig = plt.figure(figsize=size)
-    ax = fig.add_axes([0.1, 0.1, 0.7, 0.8])
-    im = ax.imshow(section, cmap=color)
-    fig.colorbar(im, shrink=0.35)  # ticks=[-1, 0, 1])
-
-
-def plot_earth_model(geom_name, save_fig=True):
-    """
-    Plot the model.
-    """
-    mat, pml, legend = get_data(geom_name)
-
-    xmax = legend['Model']['Domain'][0]
-    ymax = legend['Model']['Domain'][1]
-
-    mat_ = mat[..., 0]
-    matf = mat_.astype('float32')
-    src_pos = legend['Sources']['position']
-    rx_pos = legend['Receivers']['position']
-
-    uniq = np.unique(mat_)
-    cmap = plt.get_cmap('viridis', uniq.size)
-    mi, ma = np.min(mat_), np.max(mat_)
-
-    # Display.
-    plt.figure(figsize=(15, 12))
-    mat_plot = plt.imshow(matf,
-                          cmap=cmap,
-                          vmin=mi-.5,
-                          vmax=ma+.5,
-                          extent=[0, xmax, 0, ymax])
-
-    # Colourbar.
-    cbar = plt.colorbar(mat_plot, shrink=0.3)
-    cbar.set_ticks(uniq)
-
-    # Plot src and rcv.
-    plt.plot(*src_pos[:2], 'or')
-    plt.plot(*rx_pos[:2], 'ob')
-
-    # Axes.
-    plt.title("Earth model")
-    plt.xlabel("x position")
-    plt.ylabel("y position")
-    plt.grid()
-
-    if save_fig:
-        plt.savefig(geom_name[:-4]+'.png')
-
-    return
