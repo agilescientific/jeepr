@@ -2,17 +2,10 @@
 '''
 Utilities.
 '''
-import re
 
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-from bs4 import BeautifulSoup
-import h5py
-import vtk
-from vtk.util.numpy_support import vtk_to_numpy
 
-matplotlib.use('agg')
 
 c = 299792458  # speed of light in vacuum.
 
@@ -24,82 +17,6 @@ def srange(start, step, length, dtype=None):
     """
     stop = start + (step * length)
     return np.arange(start, stop, step, dtype)
-
-
-def _get_array(output, idx):
-    """
-    Get an array from VTK output data, then reshape and
-    flip it to use in NumPy and plot in matplotlib.
-    """
-    flat = vtk_to_numpy(output.GetCellData().GetArray(idx))
-    x, y, z = np.array(output.GetDimensions()) - 1
-    return np.flipud(flat.reshape((y, x, z)))
-
-
-def _get_meta(fname, shape, spacing):
-    """
-    Get some metadata from the XML of a VTK file, and
-    combine it with some key data about the grid.
-
-    Probably makes a bunch of assumptions about the
-    structure of the XML file.
-    """
-    with open(fname, 'rb') as f:
-        data = str(f.read())
-
-    meta = re.search(r'<gprMax>(.+?)</gprMax>', data).group(0)
-    soup = BeautifulSoup(meta, "xml")
-
-    legend = {"Materials": [{'name': m['name'], 'value':int(m.contents[0])}
-                            for m
-                            in soup.find_all("Material")]}
-
-    for e in ["PML", "Sources", "Receivers"]:
-        legend[e] = {}
-        legend[e]['name'] = soup.find(e)['name']
-        legend[e]['value'] = int(soup.find(e).contents[0])
-
-    pattern = re.compile(r'\(([0-9]+),([0-9]+),([0-9]+)\)')
-    tx = legend['Sources']['name']
-    spos = spacing * np.array([int(s)
-                              for s
-                              in pattern.search(tx).groups()])
-    legend['Sources']['position'] = spos
-    legend['Sources']['type'] = tx[:tx.find('(')]
-
-    rx = legend['Receivers']['name']
-    rpos = spacing * np.array([int(s)
-                              for s
-                              in pattern.search(rx).groups()])
-    legend['Receivers']['position'] = rpos
-
-    y, x, z = shape
-    legend['Model'] = {'Shape': (x, y, z),
-                       'Domain': spacing * np.array([x, y, z]),
-                       'Spacing': spacing}
-
-    return legend
-
-
-def get_data(fname):
-    """
-    Get data and metadata from a VTK file.
-
-    Assumes gprMax 'material' array has index 0, and
-    gprMax PML/Sources array has index 1.
-    """
-    reader = vtk.vtkXMLImageDataReader()
-    reader.SetFileName(fname)
-    reader.Update()
-
-    output = reader.GetOutput()
-    spacing = reader.GetOutput().GetSpacing()
-
-    material = _get_array(output, 0)
-    pml = (_get_array(output, 1) == 1).astype(int)
-    legend = _get_meta(fname, pml.shape, spacing)
-
-    return material, pml, legend
 
 
 def get_lines(fname, param):

@@ -22,7 +22,6 @@ GPR utilities
     :target: http://www.apache.org/licenses/LICENSE-2.0
     :alt: License
 
-
 This project is in alpha. You should probably ignore it.
 
 Do this:
