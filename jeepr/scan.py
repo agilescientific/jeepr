@@ -6,9 +6,11 @@ Defines scan objects.
 :license: Apache 2.0
 """
 import random
+import copy
 
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.signal
 import h5py
 
 from . import utils
@@ -53,6 +55,7 @@ class Scan(np.ndarray):
         # This could go wrong... may need some sanity checking.
         self.dt = getattr(obj, 'dt', 0)
         self.dx = getattr(obj, 'dx', 0)
+        self.log = getattr(obj, 'log', [])
         self.domain = getattr(obj, 'domain', 0)
         self.name = getattr(obj, 'name', '')
 
@@ -81,6 +84,7 @@ class Scan(np.ndarray):
                   'dx': float(dx),
                   'domain': 'time',
                   'meta': meta,
+                  'log': ['loaded from rad'],
                   }
 
         return cls(arr.astype(np.float).T, params)
@@ -110,6 +114,7 @@ class Scan(np.ndarray):
                   'dx': 1.0,
                   'domain': 'time',
                   'meta': {'nrx': nrx},
+                  'log': ['loaded from out'],
                   }
 
         return cls(arr.astype(np.float), params)
@@ -186,6 +191,24 @@ class Scan(np.ndarray):
         else:
             return None
 
+    def resample(self, dt, window=None):
+        """
+        Resamples a scan in time.
+
+        Args:
+            dt (float): The new sample interval in seconds.
+            window (array_like, callable, string, float, or tuple). Use
+                according to ageo.co/2h0SCn5 and ageo.co/2iXHuvr.
+        """
+        params = copy.deepcopy(self.__dict__)
+        dt_old = params['dt']
+        window = window or "hamming"
+        num = int(1 + self.time[-1] / dt)
+        arr = scipy.signal.resample(self, num, axis=0, window=window)
+        params['dt'] = dt
+        params['log'].append('resampled {} s to {} s'.format(dt_old, dt))
+        return Scan(arr, params)
+
     def add_model(self, arr, params):
         """
         Add a model from an array.
@@ -207,7 +230,10 @@ class Scan(np.ndarray):
         Returns:
             Scan.
         """
-        return self - np.mean(self, axis=1, keepdims=True)
+        params = copy.deepcopy(self.__dict__)
+        arr = self - np.mean(self, axis=1, keepdims=True)
+        params['log'].append('demeaned')
+        return Scan(arr, params)
 
     def gain(self, method=None):
         """
@@ -220,14 +246,18 @@ class Scan(np.ndarray):
         Returns:
             Scan.
         """
+        params = copy.deepcopy(self.__dict__)
         nt = self.shape[0]
-        if (method is None) or (method == "linear"):
+        method = method or "linear"
+        if method == "linear":
             f = (np.arange(nt)/nt).reshape(nt, 1)
         if method == "reciprocal":
             f = ((1 - 1/np.arange(nt))**12).reshape(nt, 1)
         if method == "power":
             f = ((np.arange(nt)/512)**2).reshape(nt, 1)
-        return self.astype(np.float64) * f
+        arr = self * f
+        params['log'].append('{} gain'.format(method))
+        return Scan(arr, params)
 
     def get_spectrum(self, n=None, return_amp=False):
         """
