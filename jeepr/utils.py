@@ -17,6 +17,13 @@ def srange(start, step, length, dtype=None):
     return np.arange(start, stop, step, dtype)
 
 
+def find_nearest(arr, value, return_index=False):
+    idx = (np.abs(arr - value)).argmin()
+    if return_index:
+        return idx
+    return arr[idx]
+
+
 def get_lines(fname, param):
     """
     Get particular lines from the .in file.
@@ -25,7 +32,7 @@ def get_lines(fname, param):
         lines = f.readlines()
     out = []
     for line in lines:
-        if line.startswith('#'+param):
+        if line.startswith('#{}:'.format(param)):
             out.append(line.split(':')[1])
     return out
 

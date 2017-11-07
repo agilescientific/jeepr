@@ -7,11 +7,13 @@ Defines scan objects.
 """
 import random
 import copy
+import os
 
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.signal
 import h5py
+from bruges.transform import time_to_depth
 
 from . import utils
 from .rad2np import read_rad
@@ -53,8 +55,12 @@ class Scan(np.ndarray):
 
         # The atrtibutes you want child objects to inherit, eg after slicing.
         # This could go wrong... may need some sanity checking.
+        self.freq = getattr(obj, 'freq', 0)
+        self.t0 = getattr(obj, 't0', 0)
+        self.x0 = getattr(obj, 'x0', 0)
         self.dt = getattr(obj, 'dt', 0)
         self.dx = getattr(obj, 'dx', 0)
+        self.dz = getattr(obj, 'dz', 0)
         self.log = getattr(obj, 'log', [])
         self.domain = getattr(obj, 'domain', 0)
         self.name = getattr(obj, 'name', '')
@@ -82,6 +88,7 @@ class Scan(np.ndarray):
 
         params = {'dt': float(dt) * 1e-12,
                   'dx': float(dx),
+                  'x0': 0.0,
                   'domain': 'time',
                   'meta': meta,
                   'log': ['loaded from rad'],
@@ -90,12 +97,14 @@ class Scan(np.ndarray):
         return cls(arr.astype(np.float).T, params)
 
     @classmethod
-    def from_gprmax(cls, fname):
+    def from_gprmax(cls, fname, infile=None):
         """
         Constructor for merged gprMax .out files.
 
         Args:
             fname (str): a gprMax OUT file.
+            infile (str): the associated .IN file, or leave blank to find
+                most likely name.
 
         Returns:
             scan. The scan object.
@@ -111,11 +120,21 @@ class Scan(np.ndarray):
             arr = f[path][:]
 
         params = {'dt': dt,
-                  'dx': 1.0,
+                  't0': 0.0,
                   'domain': 'time',
                   'meta': {'nrx': nrx},
                   'log': ['loaded from out'],
                   }
+
+        # Get wavelet and other params.
+        if infile is None:
+            infile = fname.replace('_merged.out', '.in')
+        x, = utils.get_lines(infile, 'waveform')
+        params['freq'] = float(x.split()[-2])
+        x, = utils.get_lines(infile, 'rx_steps')
+        params['dx'] = float(x.split()[0])
+        x, = utils.get_lines(infile, 'rx')
+        params['x0'] = float(x.split()[0])
 
         return cls(arr.astype(np.float), params)
 
@@ -124,7 +143,7 @@ class Scan(np.ndarray):
         """
         The time basis of the scan. Computed from dt and shape.
         """
-        return utils.srange(0, self.dt, self.shape[0])
+        return utils.srange(self.t0, self.dt, self.shape[0])
 
     @property
     def nx(self):
@@ -141,7 +160,7 @@ class Scan(np.ndarray):
         """
         The spatial basis of the scan.
         """
-        return utils.srange(0, self.dx, self.nx)
+        return utils.srange(self.x0, self.dx, self.nx)
 
     @property
     def extent(self):
@@ -150,7 +169,29 @@ class Scan(np.ndarray):
         """
         return [self.x[0], self.x[-1], self.time[-1]*1e9, self.time[0]*1e9]
 
-    def plot(self, ax=None, return_fig=False, percentile=99):
+    def crop(self, t=None, idx=None, reset_t0=True):
+        """
+        Crop a scan at some time.
+
+        For now nearest, should resample.
+        """
+        params = copy.deepcopy(self.__dict__)
+        if (idx is None) and (t is None):
+            raise ScanError("You must provide t or idx for the crop.")
+        if (t is not None) and t > 1:
+            t *= 1e-9  # Convert nanoseconds to seconds.
+        if idx is None:
+            idx = utils.find_nearest(self.time, t, return_index=True)
+        if t is None:
+            t = self.time[idx]
+        if reset_t0:
+            params['t0'] = 0.0
+        else:
+            params['t0'] = t
+        params['log'].append('crop at t = {:.2f} ns'.format(t*1e9))
+        return Scan(self[idx:, ...], params)
+
+    def plot(self, ax=None, return_fig=False, percentile=99, alpha=1.0):
         """
         Plot a scan.
 
@@ -163,7 +204,7 @@ class Scan(np.ndarray):
             ax. If you passed in an ax, otherwise None.
         """
         if ax is None:
-            fig = plt.figure(figsize=(16, 9))
+            fig = plt.figure(figsize=(8, 4.5))
             ax = fig.add_subplot(111)
             return_ax = False
         else:
@@ -174,7 +215,9 @@ class Scan(np.ndarray):
                        origin='upper',
                        extent=self.extent,
                        aspect='auto',
-                       vmin=-ma, vmax=ma
+                       vmin=-ma, vmax=ma,
+                       alpha=alpha,
+                       cmap="Greys",
                        )
         _ = plt.colorbar(im)
         ax.set_xlabel('x position (m)', size=16)
@@ -204,6 +247,8 @@ class Scan(np.ndarray):
         dt_old = params['dt']
         window = window or "hamming"
         num = int(1 + self.time[-1] / dt)
+        if num < 2:
+            raise ScanError("Resampling would result in too few samples.")
         arr = scipy.signal.resample(self, num, axis=0, window=window)
         params['dt'] = dt
         params['log'].append('resampled {} s to {} s'.format(dt_old, dt))
@@ -251,13 +296,37 @@ class Scan(np.ndarray):
         method = method or "linear"
         if method == "linear":
             f = (np.arange(nt)/nt).reshape(nt, 1)
-        if method == "reciprocal":
+        elif method == "reciprocal":
             f = ((1 - 1/np.arange(nt))**12).reshape(nt, 1)
-        if method == "power":
+        elif method == "power":
             f = ((np.arange(nt)/512)**2).reshape(nt, 1)
+        else:
+            raise ScanError("Method must be linear, reciprocal or power.")
         arr = self * f
         params['log'].append('{} gain'.format(method))
         return Scan(arr, params)
+
+    def to_depth(self, v, dz=0.001):
+        """
+        Convert Scan to depth domain.
+
+        Args:
+            v (ndarray): Interval velocities. Must be same shape as model. If
+                None, then the model's own permittivities are used.
+            dz (float): The new depth step or sampling interval, in m.
+
+        Returns:
+            Model. The depth-converted model, as a jeepr.Model instance.
+        """
+        if self.domain != 'time':
+            raise ScanError('You can only depth-convert a time scan.')
+        params = copy.deepcopy(self.__dict__)
+        arr = time_to_depth(self, v, dz=dz, dt=self.dt)
+        basis = utils.srange(0, dz, arr.shape[0])
+        params['domain'] = 'depth'
+        params['dz'] = dz
+        params['dt'] = 0
+        return Scan(arr, params), basis
 
     def get_spectrum(self, n=None, return_amp=False):
         """

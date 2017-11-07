@@ -14,6 +14,15 @@ def test_vti():
     assert np.allclose(model.mean(), 1.79682540)
 
 
+def test_gprMax():
+    model = Model.from_gprMax('tests/test_2D.in')
+    assert model.shape == (220, 200)
+    assert np.allclose(model.mean(), 1.872727273)
+
+    m_ = model.crop(z=0.1)
+    assert m_.basis.size == 200
+
+
 def test_conversion():
     model = Model.from_gprMax_vti('tests/Cylinder_halfspace.vti')
     v = np.ones(model.shape) * 5

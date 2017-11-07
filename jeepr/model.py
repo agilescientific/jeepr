@@ -7,15 +7,17 @@ Defines earth model objects.
 """
 import re
 import os
-import operator
+import copy
 
 import numpy as np
 from bs4 import BeautifulSoup
 import vtk
 from vtk.util.numpy_support import vtk_to_numpy
+import matplotlib.pyplot as plt
+from bruges.transform import depth_to_time
+from bruges.transform import time_to_depth
 
 from . import utils
-from bruges.transform import depth_to_time
 
 
 class ModelError(Exception):
@@ -52,8 +54,18 @@ class Model(np.ndarray):
         if obj.size == 1:
             return float(obj)
 
+        self.domain = getattr(obj, 'domain', 'depth')
         self.dt = getattr(obj, 'dt', 0)
         self.dz = getattr(obj, 'dz', 0)
+        self.dx = getattr(obj, 'dx', 0)
+        self.dx_dy_dz = getattr(obj, 'dx_dy_dz', ())
+        self.t0 = getattr(obj, 't0', {})
+        self.tx = getattr(obj, 'tx', {})
+        self.rx = getattr(obj, 'rx', {})
+        self.materials = getattr(obj, 'materials', [])
+        self.npml = getattr(obj, 'npml', 0)
+        self.tx_steps = getattr(obj, 'tx_steps', [])
+        self.rx_steps = getattr(obj, 'rx_steps', [])
         self.name = getattr(obj, 'name', '')
 
     def __copy__(self):
@@ -93,7 +105,7 @@ class Model(np.ndarray):
         for e in ["PML", "Sources", "Receivers"]:
             meta[e] = {}
             meta[e]['name'] = soup.find(e)['name']
-            meta[e]['value'] = int(soup.find(e).contents[0])
+            # meta[e]['value'] = int(soup.find(e).contents[0])
 
         pattern = re.compile(r'\(([0-9]+),([0-9]+),([0-9]+)\)')
         src = meta['Sources']['name']
@@ -129,9 +141,11 @@ class Model(np.ndarray):
         if arr.shape[-1] == 1:
             arr = arr.squeeze()
 
-        params = {'dx_dy_dz': dx_dy_dz,
-                  'dx': dx_dy_dz[1],
-                  'dz': dx_dy_dz[2],
+        dx, dz, dy = dx_dy_dz  # Careful! gprMax y is vertical (depth).
+
+        params = {'dx_dy_dz': (dx, dy, dz),
+                  'dx': dx,
+                  'dz': dz,
                   'npml': npml,
                   'domain': 'depth',
                   }
@@ -174,7 +188,7 @@ class Model(np.ndarray):
         """
         geom, = utils.get_lines(fname, 'geometry_view')
         path = os.path.split(fname)[0]
-        vti = os.path.join(path, geom.split()[-2]) + "1.vti"
+        vti = os.path.join(path, geom.split()[-2]) + ".vti"
         model = cls.from_gprMax_vti(vti)
         params = model.__dict__
 
@@ -190,13 +204,14 @@ class Model(np.ndarray):
         params['tx_steps'] = [float(i) for i in tx_steps.split()]
         params['rx_steps'] = [float(i) for i in rx_steps.split()]
 
+        # # Get wavelet.
+        # w, = utils.get_lines(fname, 'waveform')
+        # params['freq'] = float(w.split()[-2])
+
         # Get material properties.
         material_perms = utils.get_gprMax_materials(fname)
-        mapping = {m['name']: m['value'] for m in params['materials']}
-        material_list = [i[0] for i in sorted(mapping.items(), key=operator.itemgetter(1))]
-        perms = np.array([material_perms[i] for i in material_list])
-        #earth_model = perms[model]
-        params['permittivities'] = perms
+        for d in params['materials']:
+            d.update({'perm': material_perms[d['name']]})
 
         return cls(model, params)
 
@@ -225,10 +240,56 @@ class Model(np.ndarray):
 
     @property
     def velocity(self):
-        return utils.c / np.sqrt(self.permittivities[self])
+        return utils.c / np.sqrt(self.perms[self.astype(int)])
+
+    @property
+    def legend(self):
+        return {d['value']: d['name'] for d in self.materials if d['value'] in self}
+
+    @property
+    def perms(self):
+        """
+        This is a little unpleasant... but sometimes we want the list of perms.
+        """
+        perms = []
+        for i in range(np.amax(self.astype(int)) + 1):
+            perms += [m['perm'] for m in self.materials if m['value'] == i] or [-1]
+        return np.array(perms)
+
+    def crop(self, z=None, idx=None, reset_z0=True):
+        """
+        Crop a model at some depth.
+
+        For now nearest, should resample.
+        """
+        params = copy.deepcopy(self.__dict__)
+        if (idx is None) and (z is None):
+            raise ModelError("You must provide z or idx for the crop.")
+        if idx is None:
+            idx = utils.find_nearest(self.basis, z, return_index=True)
+        if z is None:
+            z = self.basis[idx]
+        if reset_z0:
+            params['z0'] = 0.0
+        else:
+            params['z0'] = z
+        return Model(self[idx:, ...], params)
 
     def to_time(self, v=None, dt=1e-12):
-        params = self.__dict__.copy()
+        """
+        Convert model to time domain.
+
+        Args:
+            v (ndarray): Interval velocities. Must be same shape as model. If
+                None, then the model's own permittivities are used.
+            dt (float): The new time step or sampling interval, in seconds.
+
+        Returns:
+            Model. The time-converted model, as a jeepr.Model instance.
+        """
+        if self.domain != 'depth':
+            raise ModelError('You can only time-convert a depth model.')
+        params = copy.deepcopy(self.__dict__)
         if v is None:
             v = self.velocity
         arr = depth_to_time(self, v, dz=self.dz, dt=dt)
@@ -237,3 +298,75 @@ class Model(np.ndarray):
         params['dz'] = 0
         params['dt'] = dt
         return Model(arr, params), basis
+
+    def to_depth(self, v=None, dz=0.001):
+        """
+        Convert model to depth domain.
+
+        Args:
+            v (ndarray): Interval velocities. Must be same shape as model. If
+                None, then the model's own permittivities are used.
+            dz (float): The new depth step or sampling interval, in m.
+
+        Returns:
+            Model. The depth-converted model, as a jeepr.Model instance.
+        """
+        if self.domain != 'time':
+            raise ModelError('You can only depth-convert a time model.')
+        params = copy.deepcopy(self.__dict__)
+        if v is None:
+            v = self.velocity
+        arr = time_to_depth(self, v, dz=dz, dt=self.dt)
+        basis = utils.srange(0, dz, arr.shape[0])
+        params['domain'] = 'depth'
+        params['dz'] = dz
+        params['dt'] = 0
+        return Model(arr, params), basis
+
+    def plot(self, ax=None, return_fig=False, alpha=1.0):
+        """
+        Plot a model.
+
+        Args:
+            ax (ax): A matplotlib axis.
+            return_fig (bool): whether to return the matplotlib figure.
+                Default False.
+
+        Returns:
+            ax. If you passed in an ax, otherwise None.
+        """
+        if ax is None:
+            fig = plt.figure(figsize=(8, 4.5))
+            ax = fig.add_subplot(111)
+            return_ax = False
+        else:
+            return_ax = True
+
+        cmap = plt.get_cmap('viridis', len(self.legend))
+        mi, ma = int(np.min(self)), int(np.max(self))
+        im = ax.imshow(self,
+                       cmap=cmap,
+                       vmin=mi-.5,
+                       vmax=ma+.5,
+                       origin='upper',
+                       extent=self.extent,
+                       aspect='auto',
+                       alpha=alpha,
+                       )
+        cb = plt.colorbar(im)
+        cb.set_ticks(list(self.legend.keys()))
+        cb.set_ticklabels(list(self.legend.values()))
+        ax.set_xlabel('x position (m)', size=16)
+        ax.grid(color='k', alpha=0.12)
+        if self.domain == 'time':
+            ax.set_ylabel('estimated two-way time (ns)', size=16)
+        else:
+            ax.set_ylabel('depth (m)', size=16)
+        ax.set_title(self.name, size=16)
+
+        if return_ax:
+            return ax
+        elif return_fig:
+            return fig
+        else:
+            return None
