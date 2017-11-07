@@ -7,7 +7,6 @@ Defines scan objects.
 """
 import random
 import copy
-import os
 
 import numpy as np
 import matplotlib.pyplot as plt

@@ -76,6 +76,9 @@ class Model(np.ndarray):
 
     @staticmethod
     def _get_vti_array(output, idx):
+        """
+        Get an array form a VTI file, given its index in the VTK file.
+        """
         flat = vtk_to_numpy(output.GetCellData().GetArray(idx))
         nx, ny, nz = np.array(output.GetDimensions()) - 1
         return np.flipud(flat.reshape((ny, nx, nz)))
@@ -217,14 +220,23 @@ class Model(np.ndarray):
 
     @property
     def x(self):
+        """
+        The spatial basis of the model.
+        """
         return utils.srange(0, self.dx, self.nx)
 
     @property
     def nx(self):
+        """
+        The number of x locations in the model.
+        """
         return self.shape[1]
 
     @property
     def basis(self):
+        """
+        The vertical basis of the model, could be depth or time.
+        """
         if self.domain == 'depth':
             return utils.srange(0, self.dz, self.shape[0])
         else:
@@ -232,6 +244,10 @@ class Model(np.ndarray):
 
     @property
     def extent(self):
+        """
+        The extent of the model, mainly for passing to
+        matplotlib.pyplot.imshow.
+        """
         if self.domain == 'depth':
             mult = 1
         else:
@@ -240,10 +256,16 @@ class Model(np.ndarray):
 
     @property
     def velocity(self):
+        """
+        The velocity model, computed from own permittivities.
+        """
         return utils.c / np.sqrt(self.perms[self.astype(int)])
 
     @property
     def legend(self):
+        """
+        The mapping of integer value in the model to name of material.
+        """
         return {d['value']: d['name'] for d in self.materials if d['value'] in self}
 
     @property
