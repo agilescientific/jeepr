@@ -5,9 +5,11 @@ jeepr
 ==================
 """
 from .scan import Scan
+from .model import Model
 
 __all__ = [
            'Scan',
+           'Model',
           ]
 
 __version__ = "unknown"

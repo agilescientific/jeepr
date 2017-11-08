@@ -1,0 +1,25 @@
+#title: B-scan of PEC slab, void, PVC concrete slab
+
+Define universe
+#domain: 1.00 1.10 0.002
+#dx_dy_dz: 0.005 0.005 0.002
+#time_window: 16e-9
+
+Define experiment
+#waveform: ricker 1 500e6 w
+#hertzian_dipole: z 0.000 1.00 0 w
+#rx: 0.100 1.00 0
+#src_steps: 0.01 0 0
+#rx_steps: 0.01 0 0
+
+Define materials
+#material: 3 0.00011    1 0 soil
+#material: 7 0.00010    1 0 concrete
+
+Make geometries
+#box: 0     0    0  1.00 1.00 0.002  soil
+#box: 0.20  0.40 0  0.30 0.60 0.002  free_space
+#box: 0.45  0.40 0  0.55 0.60 0.002  pec
+#box: 0.7   0.40 0  0.80 0.60 0.002  concrete
+
+#geometry_view: 0 0 0   1.00 1.10 0.002   0.004 0.004 0.002 test_2D n

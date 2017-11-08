@@ -1,0 +1,394 @@
+# -*- coding: utf-8 -*-
+"""
+Defines earth model objects.
+
+:copyright: 2017 Agile Geoscience
+:license: Apache 2.0
+"""
+import re
+import os
+import copy
+
+import numpy as np
+from bs4 import BeautifulSoup
+import vtk
+from vtk.util.numpy_support import vtk_to_numpy
+import matplotlib.pyplot as plt
+from bruges.transform import depth_to_time
+from bruges.transform import time_to_depth
+
+from . import utils
+
+
+class ModelError(Exception):
+    """
+    Generic error class.
+    """
+    pass
+
+
+class Model(np.ndarray):
+    """
+    A fancy ndarray. Gives some utility functions, plotting, etc, for scans.
+    """
+    def __new__(cls, data, params):
+        """
+        I am just following the numpy guide for subclassing ndarray...
+        """
+        obj = np.asarray(data).view(cls).copy()
+
+        params = params or {}
+
+        for k, v in params.items():
+            setattr(obj, k, v)
+
+        return obj
+
+    def __array_finalize__(self, obj):
+        """
+        I am just following the numpy guide for subclassing ndarray...
+        """
+        if obj is None:
+            return
+
+        if obj.size == 1:
+            return float(obj)
+
+        self.domain = getattr(obj, 'domain', 'depth')
+        self.dt = getattr(obj, 'dt', 0)
+        self.dz = getattr(obj, 'dz', 0)
+        self.dx = getattr(obj, 'dx', 0)
+        self.dx_dy_dz = getattr(obj, 'dx_dy_dz', ())
+        self.t0 = getattr(obj, 't0', {})
+        self.tx = getattr(obj, 'tx', {})
+        self.rx = getattr(obj, 'rx', {})
+        self.materials = getattr(obj, 'materials', [])
+        self.npml = getattr(obj, 'npml', 0)
+        self.tx_steps = getattr(obj, 'tx_steps', [])
+        self.rx_steps = getattr(obj, 'rx_steps', [])
+        self.name = getattr(obj, 'name', '')
+
+    def __copy__(self):
+        cls = self.__class__
+        result = cls.__new__(cls)
+        result.__dict__.update(self.__dict__)
+        return result
+
+    @staticmethod
+    def _get_vti_array(output, idx):
+        """
+        Get an array form a VTI file, given its index in the VTK file.
+        """
+        flat = vtk_to_numpy(output.GetCellData().GetArray(idx))
+        nx, ny, nz = np.array(output.GetDimensions()) - 1
+        return np.flipud(flat.reshape((ny, nx, nz)))
+
+    @staticmethod
+    def _get_vti_gprmax_meta(fname, spacing):
+        """
+        Get the gprMax metadata from the XML in the VTI file.
+        """
+        with open(fname, 'rb') as f:
+            data = str(f.read())
+        try:
+            gprmax = re.search(r'<gprMax>(.+?)</gprMax>', data).group(0)
+        except AttributeError:
+            raise ModelError('No gprMax section in VTI file.')
+
+        soup = BeautifulSoup(gprmax, "xml")
+
+        # Get materials.
+        materials = [{'name': m['name'], 'value':int(m.contents[0])}
+                     for m in soup.find_all("Material")
+                     if '+' not in m['name']]
+
+        meta = {"Materials": materials}
+
+        # Get geometry.
+        for e in ["PML", "Sources", "Receivers"]:
+            meta[e] = {}
+            meta[e]['name'] = soup.find(e)['name']
+            # meta[e]['value'] = int(soup.find(e).contents[0])
+
+        pattern = re.compile(r'\(([0-9]+),([0-9]+),([0-9]+)\)')
+        src = meta['Sources']['name']
+        meta['Sources']['position'] = spacing * np.array([int(s)
+                                                          for s
+                                                          in pattern.search(src).groups()])
+        meta['Sources']['type'] = src[:src.find('(')]
+        rx = meta['Receivers']['name']
+        meta['Receivers']['position'] = spacing * np.array([int(s)
+                                                            for s
+                                                            in pattern.search(rx).groups()])
+        return meta
+
+    @classmethod
+    def from_vti(cls, fname, idx=0):
+        """
+        Get data and metadata from a VTK file.
+
+        Assumes gprMax 'material' array has index 0.
+        """
+        reader = vtk.vtkXMLImageDataReader()
+        reader.SetFileName(fname)
+        reader.Update()
+
+        output = reader.GetOutput()
+        dx_dy_dz = reader.GetOutput().GetSpacing()
+
+        arr = cls._get_vti_array(output, 0)
+        pml = (cls._get_vti_array(output, 1) == 1).astype(int)
+        npml = np.where(pml[:, pml.shape[1]//2] == 0)[0][0]
+
+        # Squeeze out the last dim if it's really a 2D model.
+        if arr.shape[-1] == 1:
+            arr = arr.squeeze()
+
+        dx, dz, dy = dx_dy_dz  # Careful! gprMax y is vertical (depth).
+
+        params = {'dx_dy_dz': (dx, dy, dz),
+                  'dx': dx,
+                  'dz': dz,
+                  'npml': npml,
+                  'domain': 'depth',
+                  }
+
+        return cls(arr, params)
+
+    @classmethod
+    def from_gprMax_vti(cls, fname):
+        """
+        Constructor for VTK VTI files, as generated by gprMax. These have
+        some special gprMax-specific metadata.
+
+        Args:
+            fname (str): a gprMax-generated VTI file.
+
+        Returns:
+            model. The model object.
+        """
+        model = cls.from_vti(fname)
+        params = model.__dict__
+
+        meta = cls._get_vti_gprmax_meta(fname, model.dx_dy_dz)
+        params['rx'] = meta['Receivers']
+        params['tx'] = meta['Sources']
+        params['materials'] = meta['Materials']
+
+        return cls(model, params)
+
+    @classmethod
+    def from_gprMax(cls, fname):
+        """
+        Constructor for gprMax .in files, as generated by gprMax. These have
+        some special gprMax-specific metadata.
+
+        Args:
+            fname (str): a gprMax-generated .in file.
+
+        Returns:
+            model. The model object.
+        """
+        geom, = utils.get_lines(fname, 'geometry_view')
+        path = os.path.split(fname)[0]
+        vti = os.path.join(path, geom.split()[-2]) + ".vti"
+        model = cls.from_gprMax_vti(vti)
+        params = model.__dict__
+
+        # Get metadata.
+        meta = cls._get_vti_gprmax_meta(vti, model.dx_dy_dz)
+        params['rx'] = meta['Receivers']
+        params['tx'] = meta['Sources']
+        params['materials'] = meta['Materials']
+
+        # Get tx/rx steps.
+        tx_steps, = utils.get_lines(fname, 'src_steps')
+        rx_steps, = utils.get_lines(fname, 'rx_steps')
+        params['tx_steps'] = [float(i) for i in tx_steps.split()]
+        params['rx_steps'] = [float(i) for i in rx_steps.split()]
+
+        # # Get wavelet.
+        # w, = utils.get_lines(fname, 'waveform')
+        # params['freq'] = float(w.split()[-2])
+
+        # Get material properties.
+        material_perms = utils.get_gprMax_materials(fname)
+        for d in params['materials']:
+            d.update({'perm': material_perms[d['name']]})
+
+        return cls(model, params)
+
+    @property
+    def x(self):
+        """
+        The spatial basis of the model.
+        """
+        return utils.srange(0, self.dx, self.nx)
+
+    @property
+    def nx(self):
+        """
+        The number of x locations in the model.
+        """
+        return self.shape[1]
+
+    @property
+    def basis(self):
+        """
+        The vertical basis of the model, could be depth or time.
+        """
+        if self.domain == 'depth':
+            return utils.srange(0, self.dz, self.shape[0])
+        else:
+            return utils.srange(0, self.dt, self.shape[0])
+
+    @property
+    def extent(self):
+        """
+        The extent of the model, mainly for passing to
+        matplotlib.pyplot.imshow.
+        """
+        if self.domain == 'depth':
+            mult = 1
+        else:
+            mult = 1e9
+        return [self.x[0], self.x[-1], mult*self.basis[-1], mult*self.basis[0]]
+
+    @property
+    def velocity(self):
+        """
+        The velocity model, computed from own permittivities.
+        """
+        return utils.c / np.sqrt(self.perms[self.astype(int)])
+
+    @property
+    def legend(self):
+        """
+        The mapping of integer value in the model to name of material.
+        """
+        return {d['value']: d['name'] for d in self.materials if d['value'] in self}
+
+    @property
+    def perms(self):
+        """
+        This is a little unpleasant... but sometimes we want the list of perms.
+        """
+        perms = []
+        for i in range(np.amax(self.astype(int)) + 1):
+            perms += [m['perm'] for m in self.materials if m['value'] == i] or [-1]
+        return np.array(perms)
+
+    def crop(self, z=None, idx=None, reset_z0=True):
+        """
+        Crop a model at some depth.
+
+        For now nearest, should resample.
+        """
+        params = copy.deepcopy(self.__dict__)
+        if (idx is None) and (z is None):
+            raise ModelError("You must provide z or idx for the crop.")
+        if idx is None:
+            idx = utils.find_nearest(self.basis, z, return_index=True)
+        if z is None:
+            z = self.basis[idx]
+        if reset_z0:
+            params['z0'] = 0.0
+        else:
+            params['z0'] = z
+        return Model(self[idx:, ...], params)
+
+    def to_time(self, v=None, dt=1e-12):
+        """
+        Convert model to time domain.
+
+        Args:
+            v (ndarray): Interval velocities. Must be same shape as model. If
+                None, then the model's own permittivities are used.
+            dt (float): The new time step or sampling interval, in seconds.
+
+        Returns:
+            Model. The time-converted model, as a jeepr.Model instance.
+        """
+        if self.domain != 'depth':
+            raise ModelError('You can only time-convert a depth model.')
+        params = copy.deepcopy(self.__dict__)
+        if v is None:
+            v = self.velocity
+        arr = depth_to_time(self, v, dz=self.dz, dt=dt)
+        basis = utils.srange(0, dt, arr.shape[0])
+        params['domain'] = 'time'
+        params['dz'] = 0
+        params['dt'] = dt
+        return Model(arr, params), basis
+
+    def to_depth(self, v=None, dz=0.001):
+        """
+        Convert model to depth domain.
+
+        Args:
+            v (ndarray): Interval velocities. Must be same shape as model. If
+                None, then the model's own permittivities are used.
+            dz (float): The new depth step or sampling interval, in m.
+
+        Returns:
+            Model. The depth-converted model, as a jeepr.Model instance.
+        """
+        if self.domain != 'time':
+            raise ModelError('You can only depth-convert a time model.')
+        params = copy.deepcopy(self.__dict__)
+        if v is None:
+            v = self.velocity
+        arr = time_to_depth(self, v, dz=dz, dt=self.dt)
+        basis = utils.srange(0, dz, arr.shape[0])
+        params['domain'] = 'depth'
+        params['dz'] = dz
+        params['dt'] = 0
+        return Model(arr, params), basis
+
+    def plot(self, ax=None, return_fig=False, alpha=1.0):
+        """
+        Plot a model.
+
+        Args:
+            ax (ax): A matplotlib axis.
+            return_fig (bool): whether to return the matplotlib figure.
+                Default False.
+
+        Returns:
+            ax. If you passed in an ax, otherwise None.
+        """
+        if ax is None:
+            fig = plt.figure(figsize=(8, 4.5))
+            ax = fig.add_subplot(111)
+            return_ax = False
+        else:
+            return_ax = True
+
+        cmap = plt.get_cmap('viridis', len(self.legend))
+        mi, ma = int(np.min(self)), int(np.max(self))
+        im = ax.imshow(self,
+                       cmap=cmap,
+                       vmin=mi-.5,
+                       vmax=ma+.5,
+                       origin='upper',
+                       extent=self.extent,
+                       aspect='auto',
+                       alpha=alpha,
+                       )
+        cb = plt.colorbar(im)
+        cb.set_ticks(list(self.legend.keys()))
+        cb.set_ticklabels(list(self.legend.values()))
+        ax.set_xlabel('x position (m)', size=16)
+        ax.grid(color='k', alpha=0.12)
+        if self.domain == 'time':
+            ax.set_ylabel('estimated two-way time (ns)', size=16)
+        else:
+            ax.set_ylabel('depth (m)', size=16)
+        ax.set_title(self.name, size=16)
+
+        if return_ax:
+            return ax
+        elif return_fig:
+            return fig
+        else:
+            return None

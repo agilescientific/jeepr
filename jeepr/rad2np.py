@@ -28,7 +28,17 @@ DATA_FORMAT_CODES = {
 
 
 def read_rad(fname):
+    """
+    Reads a RAD file and extracts metadata and the data as an array.
 
+    Args:
+        fname (str): The RAD filename.
+
+    Returns:
+        tuple. (dict, list, ndarray). The file header as a dict, the trace
+            headers as a list (usually they are not interesting), and the
+            data as an ndarray.
+    """
     file_header = {}
     trace_headers = []
     traces = []
@@ -106,7 +116,9 @@ def read_rad(fname):
             # Read block ID and other parameters.
             ID, = unpack(endian + b'H', trace_descriptor_block[0:2])
             assert ID == 0x4422
-            X, Y, NS = unpack(endian + b'HII', trace_descriptor_block[2:12])
+
+            # We can read X, Y, NS; but we don't care about X, Y:
+            _, _, NS = unpack(endian + b'HII', trace_descriptor_block[2:12])
             format_code, = unpack(endian + b'B', trace_descriptor_block[12:13])
             try:
                 dtype = DATA_FORMAT_CODES[format_code]
