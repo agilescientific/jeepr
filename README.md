@@ -2,25 +2,18 @@
 
 GPR utilities
 
-.. image:: https://img.shields.io/travis/agile-geoscience/jeepr.svg
-    :target: https://travis-ci.org/agile-geoscience/jeepr
-    :alt: Travis build status
+[![Travis build status](https://img.shields.io/travis/agile-geoscience/jeepr.svg)](https://travis-ci.org/agile-geoscience/jeepr)
     
-.. image:: https://img.shields.io/pypi/status/jeepr.svg
-    :target: https://pypi.python.org/pypi/jeepr/
-    :alt: Development status
+[![Development Status](https://img.shields.io/pypi/status/jeepr.svg)](https://pypi.python.org/pypi/jeepr/)
 
-.. image:: https://img.shields.io/pypi/v/jeepr.svg
-    :target: https://pypi.python.org/pypi/jeepr/
-    :alt: Latest version
+[![Latest version](https://img.shields.io/pypi/v/jeepr.svg)](https://pypi.python.org/pypi/jeepr/)
     
-.. image:: https://img.shields.io/pypi/pyversions/jeepr.svg
-    :target: https://pypi.python.org/pypi/jeepr/
-    :alt: Python version
+[![Python version](https://img.shields.io/pypi/pyversions/jeepr.svg)](https://pypi.python.org/pypi/jeepr/)
     
-.. image:: https://img.shields.io/pypi/l/jeepr.svg
-    :target: http://www.apache.org/licenses/LICENSE-2.0
-    :alt: License
+[![License](https://img.shields.io/pypi/l/jeepr.svg)](http://www.apache.org/licenses/LICENSE-2.0)
+
+[![Documentation Status](https://readthedocs.org/projects/jeepr/badge/?version=latest)](http://jeepr.readthedocs.io/en/latest/?badge=latest)
+
 
 This project is in alpha. You should probably ignore it.
 
