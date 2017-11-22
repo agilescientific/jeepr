@@ -1,7 +1,5 @@
-.. jeepr documentation master file, created by
-   sphinx-quickstart on Fri Oct 27 14:05:23 2017.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+.. jeepr documentation master file
+
 
 Welcome to jeepr's documentation!
 =================================
@@ -14,6 +12,10 @@ Welcome to jeepr's documentation!
 
 .. autoclass:: Scan
     :members:
+
+.. autoclass:: Model
+    :members:
+
 
 Indices and tables
 ==================
