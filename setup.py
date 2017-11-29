@@ -23,6 +23,7 @@ REQUIREMENTS = ['numpy',
                 'tqdm',
                 'beautifulsoup4',
                 'h5py',
+                'bruges',
                 ]
 
 TEST_REQUIREMENTS = ['pytest',
