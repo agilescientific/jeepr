@@ -4,3 +4,4 @@ scipy
 tqdm
 beautifulsoup4
 h5py
+bruges
