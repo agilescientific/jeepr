@@ -81,7 +81,7 @@ class Scan(np.ndarray):
         Returns:
             scan. The scan object.
         """
-        meta, _, arr = read_rad(fname)
+        meta, tr_heads, arr = read_rad(fname)
         dt = meta['SPR_SAMPLING_INTERVAL']  # in picoseconds
         dx = meta['SPR_SHAFT_INTERVAL']     # in metres...
 
@@ -90,6 +90,7 @@ class Scan(np.ndarray):
                   'x0': 0.0,
                   'domain': 'time',
                   'meta': meta,
+                  'tr_heads', tr_heads,
                   'log': ['loaded from rad'],
                   }
 
